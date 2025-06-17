@@ -1,36 +1,58 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# JIRA Time Tracker
 
-## Getting Started
+A web application built with Next.js to track and visualize time spent on JIRA tickets.
 
-First, run the development server:
+## Features
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
-```
+- Fetches worklogs from JIRA API based on username and date range
+- Displays daily hours logged with breakdown by ticket
+- Shows total hours by ticket with ticket summary
+- Allows drilling down into daily breakdown for specific tickets
+- Allows viewing ticket breakdown for specific days
+- Interactive charts with tooltips and clickable bars
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## Technical Details
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+- Built with Next.js and React
+- Uses Recharts for data visualization
+- Fetches data from JIRA REST API
+- Implements responsive design with Tailwind CSS
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## Setup
 
-## Learn More
+### Option 1: Running Locally
 
-To learn more about Next.js, take a look at the following resources:
+1. Clone the repository
+2. Install dependencies: `npm install`
+3. Create a `.env` file with JIRA configuration:
+   ```
+   JIRA_URL=https://your-jira-instance.atlassian.net
+   JIRA_TOKEN=your-jira-api-token
+   ```
+4. Start the development server: `npm run dev`
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+### Option 2: Running with Docker
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+1. Pull the Docker image: `docker pull haseemisaac/jira-time-tracker:latest`
+2. Run the container:
+   ```bash
+   docker run -p 3000:3000 \
+     -e JIRA_URL=https://your-domain.atlassian.net \
+     -e JIRA_TOKEN=your-token \
+     haseemisaac/jira-time-tracker:latest
+   ```
+3. Access the application at `http://localhost:3000`
 
-## Deploy on Vercel
+## Usage
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+1. Enter your JIRA username in the input field
+2. Select a date range using the dropdown menu
+3. Click "Refresh" to fetch worklogs
+4. Navigate between tabs to view different visualizations
+5. Click on bars to drill down into specific ticket or day details
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## Notes
+
+- Requires a valid JIRA API token with appropriate permissions
+- Tested with JIRA Cloud instance
+- Date range selection is limited to 7, 14, 30, 60, or 90 days
