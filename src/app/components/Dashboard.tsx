@@ -3,7 +3,7 @@
 
 import { useState, useEffect } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
-import { Calendar, Clock, Ticket, TrendingUp, RefreshCw, BarChart3, CalendarDays, CalendarCheck } from 'lucide-react';
+import { Calendar, Clock, Ticket, TrendingUp, RefreshCw, BarChart3, CalendarDays, CalendarCheck, X } from 'lucide-react';
 import { format, parseISO, subDays, eachDayOfInterval, isWeekend, getDay } from 'date-fns';
 import { WorklogEntry, TicketSummary, DailySummary, TicketDailyBreakdown, TicketInfo } from '../types/worklog';
 import { useUserStore } from '../store/userStore';
@@ -12,12 +12,19 @@ import UsernameInput from './UsernameInput';
 type TabType = 'daily' | 'tickets' | 'ticket-detail' | 'day-detail';
 type DateRangeType = 7 | 14 | 30 | 60 | 90;
 
+interface Tab {
+  id: string;
+  type: TabType;
+  label: string;
+  data?: string; // ticket ID or date
+}
+
 // Custom tooltip component for daily view
 const CustomDailyTooltip = ({ active, payload, label, worklogs, ticketInfo }: any) => {
   if (active && payload && payload.length) {
     const date = label;
     const dayLogs = worklogs.filter((log: WorklogEntry) => log.date === date);
-    
+
     // Group by ticket
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const ticketHours = dayLogs.reduce((acc: any, log: WorklogEntry) => {
@@ -87,24 +94,31 @@ export default function Dashboard() {
   const [ticketInfo, setTicketInfo] = useState<Record<string, TicketInfo>>({});
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [selectedTicket, setSelectedTicket] = useState<string | null>(null);
-  const [selectedDate, setSelectedDate] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<TabType>('daily');
+  const [tabs, setTabs] = useState<Tab[]>([
+    { id: 'daily', type: 'daily', label: 'Daily Hours' },
+    { id: 'tickets', type: 'tickets', label: 'Tickets Summary' }
+  ]);
+  const [activeTabId, setActiveTabId] = useState<string>('daily');
   const [dateRange, setDateRange] = useState<DateRangeType>(30);
   const { username } = useUserStore();
 
   useEffect(() => {
     if (username) {
+      console.log(`[Dashboard] Username changed to: ${username}, triggering worklog fetch`);
       fetchWorklogs();
     }
   }, [username, dateRange]);
 
   const fetchWorklogs = async () => {
-    if (!username) return;
-    
+    if (!username) {
+      console.log('[Dashboard] No username set, skipping worklog fetch');
+      return;
+    }
+
+    console.log(`[Dashboard] Fetching worklogs for user: ${username}, days: ${dateRange}`);
     setLoading(true);
     setError(null);
-    
+
     try {
       const response = await fetch('/api/worklogs', {
         method: 'POST',
@@ -113,19 +127,24 @@ export default function Dashboard() {
         },
         body: JSON.stringify({ username, days: dateRange }),
       });
-      
+
       const data = await response.json();
-      
+
+      console.log(data)
+
       if (!response.ok) {
         throw new Error(data.error || 'Failed to fetch worklogs');
       }
-      
+
       if (data.worklogs) {
+        console.log(`[Dashboard] Successfully fetched ${data.worklogs.length} worklog entries for ${username}`);
+        console.log(`[Dashboard] Date range: last ${dateRange} days`);
+        console.log(`[Dashboard] Ticket info received for ${Object.keys(data.ticketInfo || {}).length} tickets`);
         setWorklogs(data.worklogs);
         setTicketInfo(data.ticketInfo || {});
       }
     } catch (error) {
-      console.error('Error fetching worklogs:', error);
+      console.error('[Dashboard] Error fetching worklogs:', error);
       setError(error instanceof Error ? error.message : 'An error occurred');
     } finally {
       setLoading(false);
@@ -150,16 +169,16 @@ export default function Dashboard() {
   };
 
   // Fill in missing weekdays
-  const fillMissingWeekdays = (data: { date: string; [key: string]: any }[]): any[] => {
+  const fillMissingWeekdays = (data: { date: string;[key: string]: any }[]): any[] => {
     const startDate = subDays(new Date(), dateRange);
     const endDate = new Date();
-    
+
     const allDays = eachDayOfInterval({ start: startDate, end: endDate })
       .filter(date => !isWeekend(date))
       .map(date => format(date, 'yyyy-MM-dd'));
 
     const dataMap = new Map(data.map(item => [item.date, item]));
-    
+
     return allDays.map(date => {
       const existing = dataMap.get(date);
       if (existing) {
@@ -190,7 +209,7 @@ export default function Dashboard() {
   const getDailySummaries = (): DailySummary[] => {
     const filteredLogs = getFilteredWorklogs();
     const dailyMap = new Map<string, number>();
-    
+
     filteredLogs.forEach(log => {
       const current = dailyMap.get(log.date) || 0;
       dailyMap.set(log.date, current + log.timeSpentSeconds);
@@ -210,7 +229,7 @@ export default function Dashboard() {
   const getTicketSummaries = (): TicketSummary[] => {
     const filteredLogs = getFilteredWorklogs();
     const summaryMap = new Map<string, number>();
-    
+
     filteredLogs.forEach(log => {
       const current = summaryMap.get(log.key) || 0;
       summaryMap.set(log.key, current + log.timeSpentSeconds);
@@ -227,9 +246,10 @@ export default function Dashboard() {
 
   // Get daily breakdown for selected ticket (Screen 3)
   const getTicketDailyBreakdown = (ticket: string): TicketDailyBreakdown[] => {
+    console.log(`[Dashboard] Getting daily breakdown for ticket: ${ticket}`);
     const filteredLogs = getFilteredWorklogs();
     const dailyMap = new Map<string, number>();
-    
+
     filteredLogs
       .filter(log => log.key === ticket)
       .forEach(log => {
@@ -243,14 +263,16 @@ export default function Dashboard() {
         hours: Number((seconds / 3600).toFixed(2))
       }));
 
+    console.log(`[Dashboard] Found ${breakdown.length} days with logs for ticket: ${ticket}`);
     return fillMissingWeekdays(breakdown) as TicketDailyBreakdown[];
   };
 
   // Get tickets for a specific day (Screen 4)
   const getDayTicketBreakdown = (date: string): TicketSummary[] => {
+    console.log(`[Dashboard] Getting ticket breakdown for date: ${date}`);
     const filteredLogs = getFilteredWorklogs();
     const ticketMap = new Map<string, number>();
-    
+
     filteredLogs
       .filter(log => log.date === date)
       .forEach(log => {
@@ -258,31 +280,108 @@ export default function Dashboard() {
         ticketMap.set(log.key, current + log.timeSpentSeconds);
       });
 
-    return Array.from(ticketMap.entries())
+    const tickets = Array.from(ticketMap.entries())
       .map(([ticket, seconds]) => ({
         ticket,
         title: ticketInfo[ticket]?.summary || 'No title available',
         totalHours: Number((seconds / 3600).toFixed(2))
       }))
       .sort((a, b) => b.totalHours - a.totalHours);
+
+    console.log(`[Dashboard] Found ${tickets.length} tickets logged on ${date}`);
+    return tickets;
   };
 
   const handleTicketClick = (ticket: string) => {
-    setSelectedTicket(ticket);
-    setActiveTab('ticket-detail');
+    console.log(`[Dashboard] User clicked on ticket: ${ticket}`);
+    const tabId = `ticket-${ticket}`;
+    const existingTab = tabs.find(tab => tab.id === tabId);
+
+    if (existingTab) {
+      console.log(`[Dashboard] Tab already exists for ticket: ${ticket}, switching to it`);
+      setActiveTabId(tabId);
+    } else {
+      console.log(`[Dashboard] Creating new tab for ticket: ${ticket}`);
+      const newTab: Tab = {
+        id: tabId,
+        type: 'ticket-detail',
+        label: `${ticket}`,
+        data: ticket
+      };
+      setTabs([...tabs, newTab]);
+      setActiveTabId(tabId);
+    }
   };
 
   const handleDayClick = (date: string) => {
-    setSelectedDate(date);
-    setActiveTab('day-detail');
+    console.log(`[Dashboard] User clicked on day: ${date}`);
+    const tabId = `day-${date}`;
+    const existingTab = tabs.find(tab => tab.id === tabId);
+
+    if (existingTab) {
+      console.log(`[Dashboard] Tab already exists for date: ${date}, switching to it`);
+      setActiveTabId(tabId);
+    } else {
+      console.log(`[Dashboard] Creating new tab for date: ${date}`);
+      const newTab: Tab = {
+        id: tabId,
+        type: 'day-detail',
+        label: formatDate(date),
+        data: date
+      };
+      setTabs([...tabs, newTab]);
+      setActiveTabId(tabId);
+    }
   };
 
+  const handleDateRangeChange = (newRange: DateRangeType) => {
+    console.log(`[Dashboard] User changed date range from ${dateRange} to ${newRange} days`);
+    setDateRange(newRange);
+  };
+
+  const handleTabChange = (tabId: string) => {
+    console.log(`[Dashboard] User switched to tab: ${tabId}`);
+    setActiveTabId(tabId);
+  };
+
+  const handleRefresh = () => {
+    console.log(`[Dashboard] User clicked refresh button`);
+    fetchWorklogs();
+  };
+
+  const closeTab = (tabId: string) => {
+    console.log(`[Dashboard] User closing tab: ${tabId}`);
+    const tabIndex = tabs.findIndex(tab => tab.id === tabId);
+    const newTabs = tabs.filter(tab => tab.id !== tabId);
+    setTabs(newTabs);
+
+    // If we're closing the active tab, switch to an adjacent tab
+    if (activeTabId === tabId && newTabs.length > 0) {
+      const newActiveIndex = Math.min(tabIndex, newTabs.length - 1);
+      const newActiveTabId = newTabs[newActiveIndex].id;
+      console.log(`[Dashboard] Active tab was closed, switching to: ${newActiveTabId}`);
+      setActiveTabId(newActiveTabId);
+    }
+  };
+
+  const getTabIcon = (type: TabType) => {
+    switch (type) {
+      case 'daily':
+        return <CalendarDays className="w-4 h-4" />;
+      case 'tickets':
+        return <BarChart3 className="w-4 h-4" />;
+      case 'ticket-detail':
+        return <Ticket className="w-4 h-4" />;
+      case 'day-detail':
+        return <CalendarCheck className="w-4 h-4" />;
+    }
+  };
+
+  const activeTab = tabs.find(tab => tab.id === activeTabId);
   const dailySummaries = getDailySummaries();
   const ticketSummaries = getTicketSummaries();
-  const ticketDailyBreakdown = selectedTicket ? getTicketDailyBreakdown(selectedTicket) : [];
-  const dayTicketBreakdown = selectedDate ? getDayTicketBreakdown(selectedDate) : [];
   const filteredWorklogs = getFilteredWorklogs();
-  
+
   // Calculate total hours only from days with actual logs
   const totalHours = filteredWorklogs.reduce((sum, log) => sum + log.timeSpentSeconds, 0) / 3600;
   const daysWithLogs = new Set(filteredWorklogs.map(log => log.date)).size;
@@ -299,7 +398,7 @@ export default function Dashboard() {
             {/* Date Range Selector */}
             <select
               value={dateRange}
-              onChange={(e) => setDateRange(Number(e.target.value) as DateRangeType)}
+              onChange={(e) => handleDateRangeChange(Number(e.target.value) as DateRangeType)}
               className="px-4 py-2 border border-gray-300 rounded-md text-gray-900 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
             >
               <option value={7}>Last 7 days</option>
@@ -308,10 +407,10 @@ export default function Dashboard() {
               <option value={60}>Last 60 days</option>
               <option value={90}>Last 90 days</option>
             </select>
-            
+
             {username && (
               <button
-                onClick={fetchWorklogs}
+                onClick={handleRefresh}
                 disabled={loading}
                 className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 transition-colors disabled:opacity-50"
               >
@@ -361,7 +460,7 @@ export default function Dashboard() {
                   <TrendingUp className="w-8 h-8 text-green-500" />
                 </div>
               </div>
-              
+
               <div className="bg-white rounded-lg shadow p-6">
                 <div className="flex items-center justify-between">
                   <div>
@@ -371,7 +470,7 @@ export default function Dashboard() {
                   <Ticket className="w-8 h-8 text-blue-500" />
                 </div>
               </div>
-              
+
               <div className="bg-white rounded-lg shadow p-6">
                 <div className="flex items-center justify-between">
                   <div>
@@ -389,78 +488,58 @@ export default function Dashboard() {
             <div className="bg-white rounded-lg shadow mb-8">
               <div className="border-b border-gray-200">
                 <nav className="-mb-px flex flex-wrap">
-                  <button
-                    onClick={() => setActiveTab('daily')}
-                    className={`px-6 py-3 border-b-2 font-medium text-sm flex items-center gap-2 ${
-                      activeTab === 'daily'
+                  {tabs.map((tab) => (
+                    <div
+                      key={tab.id}
+                      className={`group relative px-6 py-3 border-b-2 font-medium text-sm flex items-center gap-2 ${activeTabId === tab.id
                         ? 'border-blue-500 text-blue-600'
                         : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                    }`}
-                  >
-                    <CalendarDays className="w-4 h-4" />
-                    Daily Hours
-                  </button>
-                  <button
-                    onClick={() => setActiveTab('tickets')}
-                    className={`px-6 py-3 border-b-2 font-medium text-sm flex items-center gap-2 ${
-                      activeTab === 'tickets'
-                        ? 'border-blue-500 text-blue-600'
-                        : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                    }`}
-                  >
-                    <BarChart3 className="w-4 h-4" />
-                    Tickets Summary
-                  </button>
-                  {selectedTicket && (
-                    <button
-                      onClick={() => setActiveTab('ticket-detail')}
-                      className={`px-6 py-3 border-b-2 font-medium text-sm flex items-center gap-2 ${
-                        activeTab === 'ticket-detail'
-                          ? 'border-blue-500 text-blue-600'
-                          : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                      }`}
+                        }`}
                     >
-                      <Ticket className="w-4 h-4" />
-                      {selectedTicket} Details
-                    </button>
-                  )}
-                  {selectedDate && (
-                    <button
-                      onClick={() => setActiveTab('day-detail')}
-                      className={`px-6 py-3 border-b-2 font-medium text-sm flex items-center gap-2 ${
-                        activeTab === 'day-detail'
-                          ? 'border-blue-500 text-blue-600'
-                          : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                      }`}
-                    >
-                      <CalendarCheck className="w-4 h-4" />
-                      {formatDate(selectedDate)} Details
-                    </button>
-                  )}
+                      <button
+                        onClick={() => handleTabChange(tab.id)}
+                        className="flex items-center gap-2"
+                      >
+                        {getTabIcon(tab.type)}
+                        {tab.label}
+                      </button>
+                      {!['daily', 'tickets'].includes(tab.id) && (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            closeTab(tab.id);
+                          }}
+                          className="ml-2 p-1 rounded hover:bg-gray-200 opacity-0 group-hover:opacity-100 transition-opacity"
+                        >
+                          <X className="w-3 h-3" />
+                        </button>
+                      )}
+                    </div>
+                  ))}
                 </nav>
               </div>
 
               <div className="p-6">
                 {/* Screen 1: Daily Hours */}
-                {activeTab === 'daily' && (
+                {activeTab?.type === 'daily' && (
                   <div>
                     <h2 className="text-xl font-bold text-gray-900 mb-4">Hours Logged Per Day</h2>
                     <ResponsiveContainer width="100%" height={400}>
                       <BarChart data={dailySummaries}>
                         <CartesianGrid strokeDasharray="3 3" />
-                        <XAxis 
-                          dataKey="date" 
+                        <XAxis
+                          dataKey="date"
                           tickFormatter={formatDate}
                           angle={-45}
                           textAnchor="end"
                           height={80}
                         />
                         <YAxis />
-                        <Tooltip 
+                        <Tooltip
                           content={<CustomDailyTooltip worklogs={filteredWorklogs} ticketInfo={ticketInfo} />}
                         />
-                        <Bar 
-                          dataKey="totalHours" 
+                        <Bar
+                          dataKey="totalHours"
                           fill="#3B82F6"
                           onClick={(data) => handleDayClick(data.date)}
                           style={{ cursor: 'pointer' }}
@@ -474,7 +553,7 @@ export default function Dashboard() {
                 )}
 
                 {/* Screen 2: Tickets Summary */}
-                {activeTab === 'tickets' && (
+                {activeTab?.type === 'tickets' && (
                   <div>
                     <h2 className="text-xl font-bold text-gray-900 mb-4">Total Hours by Ticket</h2>
                     <ResponsiveContainer width="100%" height={400}>
@@ -482,12 +561,12 @@ export default function Dashboard() {
                         <CartesianGrid strokeDasharray="3 3" />
                         <XAxis dataKey="ticket" angle={-45} textAnchor="end" height={80} />
                         <YAxis />
-                        <Tooltip 
+                        <Tooltip
                           content={<CustomTicketTooltip ticketInfo={ticketInfo} />}
                         />
-                        <Bar 
-                          dataKey="totalHours" 
-                          fill="#10B981" 
+                        <Bar
+                          dataKey="totalHours"
+                          fill="#10B981"
                           onClick={(data) => handleTicketClick(data.ticket)}
                           style={{ cursor: 'pointer' }}
                         />
@@ -500,41 +579,30 @@ export default function Dashboard() {
                 )}
 
                 {/* Screen 3: Ticket Daily Breakdown */}
-                {activeTab === 'ticket-detail' && selectedTicket && (
+                {activeTab?.type === 'ticket-detail' && activeTab.data && (
                   <div>
-                    <div className="flex items-center justify-between mb-4">
-                      <div>
-                        <h2 className="text-xl font-bold text-gray-900">
-                          Daily Hours for {selectedTicket}
-                        </h2>
-                        {ticketInfo[selectedTicket] && (
-                          <p className="text-sm text-gray-600 mt-1">
-                            {ticketInfo[selectedTicket].summary}
-                          </p>
-                        )}
-                      </div>
-                      <button
-                        onClick={() => {
-                          setSelectedTicket(null);
-                          setActiveTab('tickets');
-                        }}
-                        className="text-sm text-gray-500 hover:text-gray-700"
-                      >
-                        ← Back to Tickets
-                      </button>
+                    <div className="mb-4">
+                      <h2 className="text-xl font-bold text-gray-900">
+                        Daily Hours for {activeTab.data}
+                      </h2>
+                      {ticketInfo[activeTab.data] && (
+                        <p className="text-sm text-gray-600 mt-1">
+                          {ticketInfo[activeTab.data].summary}
+                        </p>
+                      )}
                     </div>
                     <ResponsiveContainer width="100%" height={400}>
-                      <BarChart data={ticketDailyBreakdown}>
+                      <BarChart data={getTicketDailyBreakdown(activeTab.data)}>
                         <CartesianGrid strokeDasharray="3 3" />
-                        <XAxis 
-                          dataKey="date" 
+                        <XAxis
+                          dataKey="date"
                           tickFormatter={formatDate}
                           angle={-45}
                           textAnchor="end"
                           height={80}
                         />
                         <YAxis />
-                        <Tooltip 
+                        <Tooltip
                           labelFormatter={(value) => formatDate(value as string)}
                           formatter={(value: number) => `${value} hours`}
                         />
@@ -545,38 +613,27 @@ export default function Dashboard() {
                 )}
 
                 {/* Screen 4: Day Ticket Breakdown */}
-                {activeTab === 'day-detail' && selectedDate && (
+                {activeTab?.type === 'day-detail' && activeTab.data && (
                   <div>
-                    <div className="flex items-center justify-between mb-4">
-                      <div>
-                        <h2 className="text-xl font-bold text-gray-900">
-                          Tickets for {format(parseISO(selectedDate), 'EEEE, MMMM d, yyyy')}
-                        </h2>
-                        <p className="text-sm text-gray-600 mt-1">
-                          Total: {dayTicketBreakdown.reduce((sum, t) => sum + t.totalHours, 0).toFixed(2)} hours
-                        </p>
-                      </div>
-                      <button
-                        onClick={() => {
-                          setSelectedDate(null);
-                          setActiveTab('daily');
-                        }}
-                        className="text-sm text-gray-500 hover:text-gray-700"
-                      >
-                        ← Back to Daily View
-                      </button>
+                    <div className="mb-4">
+                      <h2 className="text-xl font-bold text-gray-900">
+                        Tickets for {format(parseISO(activeTab.data), 'EEEE, MMMM d, yyyy')}
+                      </h2>
+                      <p className="text-sm text-gray-600 mt-1">
+                        Total: {getDayTicketBreakdown(activeTab.data).reduce((sum, t) => sum + t.totalHours, 0).toFixed(2)} hours
+                      </p>
                     </div>
-                    {dayTicketBreakdown.length > 0 ? (
+                    {getDayTicketBreakdown(activeTab.data).length > 0 ? (
                       <ResponsiveContainer width="100%" height={400}>
-                        <BarChart data={dayTicketBreakdown}>
+                        <BarChart data={getDayTicketBreakdown(activeTab.data)}>
                           <CartesianGrid strokeDasharray="3 3" />
                           <XAxis dataKey="ticket" angle={-45} textAnchor="end" height={80} />
                           <YAxis />
-                          <Tooltip 
+                          <Tooltip
                             content={<CustomTicketTooltip ticketInfo={ticketInfo} />}
                           />
-                          <Bar 
-                            dataKey="totalHours" 
+                          <Bar
+                            dataKey="totalHours"
                             fill="#F59E0B"
                             onClick={(data) => handleTicketClick(data.ticket)}
                             style={{ cursor: 'pointer' }}
@@ -589,7 +646,7 @@ export default function Dashboard() {
                         <p className="text-lg text-gray-600">No time logged on this day</p>
                       </div>
                     )}
-                    {dayTicketBreakdown.length > 0 && (
+                    {getDayTicketBreakdown(activeTab.data).length > 0 && (
                       <p className="text-sm text-gray-500 mt-2 text-center">
                         Click on a bar to see daily breakdown for that ticket
                       </p>
