@@ -3,6 +3,7 @@ export interface WorklogEntry {
   started: string;
   timeSpentSeconds: number;
   date: string;
+  author: string;
 }
 
 export interface TicketInfo {

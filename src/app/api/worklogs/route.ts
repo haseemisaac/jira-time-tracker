@@ -20,6 +20,7 @@ interface WorklogEntry {
   started: string;
   timeSpentSeconds: number;
   date: string;
+  author: string;
 }
 
 interface TicketInfo {
@@ -37,13 +38,16 @@ export async function POST(request: NextRequest) {
 
   try {
     const body = await request.json();
-    const { username, days = 30 } = body;
+    const { usernames, days = 30 } = body;
 
-    if (!username) {
-      return NextResponse.json({ error: 'Username is required' }, { status: 400 });
+    if (!usernames || !Array.isArray(usernames) || usernames.length === 0) {
+      return NextResponse.json({ error: 'At least one username is required' }, { status: 400 });
     }
 
-    // Search for issues with worklogs in the specified period
+    // Build JQL for all users
+    const usernamesJql = usernames.map((u: string) => `"${u}"`).join(', ');
+    const jql = `worklogAuthor in (${usernamesJql}) AND worklogDate >= -${days}d`;
+
     const searchResponse = await fetch(`${jiraUrl}/rest/api/2/search`, {
       method: 'POST',
       headers: {
@@ -52,8 +56,8 @@ export async function POST(request: NextRequest) {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        jql: `worklogAuthor = "${username}" AND worklogDate >= -${days}d`,
-        fields: ['key', 'summary'], // Also fetch the summary field
+        jql,
+        fields: ['key', 'summary'],
         maxResults: 1000,
       }),
     });
@@ -76,6 +80,7 @@ export async function POST(request: NextRequest) {
 
     // Fetch worklogs for each issue
     const worklogs: WorklogEntry[] = [];
+    const usernamesLower = usernames.map((u: string) => u.toLowerCase());
 
     for (const issue of issues) {
       const worklogResponse = await fetch(
@@ -90,8 +95,9 @@ export async function POST(request: NextRequest) {
 
       if (worklogResponse.ok) {
         const worklogData = await worklogResponse.json();
+        // Filter to only include requested usernames
         const userWorklogs = worklogData.worklogs.filter(
-          (w: JiraWorklog) => w.author.name === username
+          (w: JiraWorklog) => usernamesLower.includes(w.author.name.toLowerCase())
         );
 
         userWorklogs.forEach((w: JiraWorklog) => {
@@ -99,15 +105,17 @@ export async function POST(request: NextRequest) {
             key: issue.key,
             started: w.started,
             timeSpentSeconds: w.timeSpentSeconds,
-            date: w.started.split('T')[0], // Extract date part
+            date: w.started.split('T')[0],
+            author: w.author.name,
           });
         });
       }
     }
 
-    return NextResponse.json({ 
+    return NextResponse.json({
       worklogs,
-      ticketInfo: ticketInfoMap 
+      ticketInfo: ticketInfoMap,
+      usernames
     });
   } catch (error) {
     console.error('Error fetching worklogs:', error);
